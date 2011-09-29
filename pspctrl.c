@@ -22,6 +22,7 @@ typedef struct SceCtrlOption {
     int cycle;                  //0x000028C8
     char sampling[2];           //0x000028CC
     char g0x000028CE;           //0x000028CE
+    char g0x000028CF;           //0x000028CF
     int g0x000028D0;            //0x000028D0
                             //0x000028D4
     char polling;               //0x000028D5
@@ -130,8 +131,34 @@ int sceCtrlSuspend() {
     return 0;
 }
 
+int sub_00000528 () { //not complete (handler)
+    int intr = sceKernelCpuSuspendIntr();
+    if( cycle != 0) {
+        if(g0x000028D0 == 0) {
+            
+        } else {
+            
+        }
+    }
+    sceKernelCpuResumeIntr(intr);
+    return -1;
+}
+
+
 int sceCtrlResume() {//not complete
     int var3 = sceSyscon_driver_4717A520();
+    if(var3 == 0)
+        asm("ins %0, $zr, 29, 1"
+         : "=r" g0x00002AF8);
+    else if(var3 == 1)
+        g0x00002AF8 |= 0x20000000;
+    g0x000028CF = -1;
+    if(cycle != 0) {
+        sceSTimerStartCount(timer);
+        sceSTimerSetHandler(timer, cycle, sub_00000528, 0);
+    } else {
+        sceKernelReleaseSubIntrHandlerFunction(/*PSP_DISPLAY_SUBINT, PSP_THREAD0_INT*/0x1E, 0x13);
+	}
     return 0;
 }
 
