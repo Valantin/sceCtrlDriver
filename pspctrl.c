@@ -15,6 +15,37 @@ typedef struct ButtonCallback {
     void *arg;
 }
 
+typedef struct sceSysconPacket
+{
+        u8      unk00[4];               // +0x00 ?(0x00,0x00,0x00,0x00)
+        u8      unk04[2];               // +0x04 ?(arg2)
+        u8      status;                 // +0x06
+        u8      unk07;                  // +0x07 ?(0x00)
+        u8      unk08[4];               // +0x08 ?(0xff,0xff,0xff,0xff)
+        // transmit data
+        u8      tx_cmd;                 // +0x0C command code
+        u8      tx_len;                 // +0x0D number of transmit bytes
+        u8      tx_data[14];    // +0x0E transmit parameters
+        // receive data
+        u8      rx_sts;                 // +0x1C generic status
+        u8      rx_len;                 // +0x1D receive length
+        u8      rx_response;    // +0x1E response code(tx_cmd or status code)
+        u8      rx_data[9];             // +0x1F receive parameters
+        // ?
+        u32     unk28;                  // +0x28
+        // user callback (when finish an access?)
+        void (*callback)(struct sceSysconPacket *,u32); // +0x2c
+        u32     callback_r28;   // +0x30
+        u32     callback_arg2;  // +0x34 arg2 of callback (arg4 of sceSycconCmdExec)
+
+        u8      unk38[0x0d];    // +0x38
+        u8      old_sts;                // +0x45 old     rx_sts
+        u8      cur_sts;                // +0x46 current rx_sts
+        u8      unk47[0x21];    // +0x47
+        // data size == 0x60 ??
+} sceSysconPacket;
+
+
 PspSysEventHandler sysevent;//0x00002880
 typedef struct SceCtrlOption {
     SceSysTimerId timer;        //0x000028C0
@@ -23,11 +54,12 @@ typedef struct SceCtrlOption {
     char sampling[2];           //0x000028CC
     char g0x000028CE;           //0x000028CE
     char g0x000028CF;           //0x000028CF
-    int g0x000028D0;            //0x000028D0
+    int g0x000028D0;//run ?     //0x000028D0
                             //0x000028D4
     char polling;               //0x000028D5
     short g0x000028D6;          //0x000028D6
     int g0x000028D8;            //0x000028D8
+    sceSysconPacket packet;     //0x000028DC
                             //0x000029E0
     int rapidfire[16];          //0x000029EC
                             //0x00002A02
@@ -150,10 +182,20 @@ int sub_00000528 () { //not complete (handler)
     int intr = sceKernelCpuSuspendIntr();
     if(option->cycle != 0) {
         if(option->g0x000028D0 == 0 && option->polling != 0) {
-            //sampling
+            option->g0x000028D0 = 1;
+            option->packet->tx_cmd = 7;
+            if(option->sampling[0] != 0 && option->sampling[1] != 0)
+                option->packet->tx_cmd = 8;
+            option->packet->tx_len = 2;
+            int ret = sceSysconCmdExecAsync(option->packet, 1, 0x610, 0);
+            if(ret < 0) option->g0x000028D0 = 0;
         } else {
             sceKernelSetAlarm(0x2BC, sub_00001E0C, NULL);
         }
+    }
+    if(option->g0x000028D4 != 0) {
+        option->g0x000028D4 = 0;
+        sceKernelPowerTick(0);
     }
     sceKernelCpuResumeIntr(intr);
     return -1;
