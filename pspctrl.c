@@ -131,13 +131,28 @@ int sceCtrlSuspend() {
     return 0;
 }
 
+void sub_00000968(int arg1, char arg2, char arg3) {
+
+}
+
+SceUInt sub_00001E0C (void *common) { //(alarm handler)
+    int intr = sceKernelCpuSuspendIntr();
+    int var1;
+    if(option->g0x000028D8 != 0) var1 = option->g0x00002AEC;
+    else asm("ins $a0, $zr, 0, 17" : "=r" var1);
+    sub_00000968(ptr, option->g0x00002B04, option->g0x00002B05);
+    sceKernelSetEventFlag(option->evid, 1);
+    sceKernelCpuResumeIntr(intr);
+    return 0;
+}
+
 int sub_00000528 () { //not complete (handler)
     int intr = sceKernelCpuSuspendIntr();
-    if( cycle != 0) {
-        if(g0x000028D0 == 0) {
-            
+    if(option->cycle != 0) {
+        if(option->g0x000028D0 == 0 && option->polling != 0) {
+            //sampling
         } else {
-            
+            sceKernelSetAlarm(0x2BC, sub_00001E0C, NULL);
         }
     }
     sceKernelCpuResumeIntr(intr);
@@ -149,13 +164,13 @@ int sceCtrlResume() {//not complete
     int var3 = sceSyscon_driver_4717A520();
     if(var3 == 0)
         asm("ins %0, $zr, 29, 1"
-         : "=r" g0x00002AF8);
+         : "=r" option->g0x00002AF8);
     else if(var3 == 1)
-        g0x00002AF8 |= 0x20000000;
-    g0x000028CF = -1;
-    if(cycle != 0) {
-        sceSTimerStartCount(timer);
-        sceSTimerSetHandler(timer, cycle, sub_00000528, 0);
+        option->g0x00002AF8 |= 0x20000000;
+    option->g0x000028CF = -1;
+    if(option->cycle != 0) {
+        sceSTimerStartCount(option->timer);
+        sceSTimerSetHandler(option->timer, option->cycle, sub_00000528, 0);
     } else {
         sceKernelReleaseSubIntrHandlerFunction(/*PSP_DISPLAY_SUBINT, PSP_THREAD0_INT*/0x1E, 0x13);
 	}
