@@ -1,5 +1,7 @@
-#include <memset.h>
+#include <string.h>
 
+#include <pspsdk.h>
+#include <pspinit.h>
 #include <pspctrl.h>
 #include <pspctrl_kernel.h>
 #include <pspsysevent.h>
@@ -8,16 +10,18 @@
 
 PSP_MODULE_INFO("sceController_Service", 1007, 1, 10);
 
-#define SLL_K1(k1) asm volatile("sll $k1, $k1, %0;" :: "r" (b))
+#define SLL_K1(k1) asm volatile("sll $k1, $k1, %0;" :: "r" (k1))
 #define SET_K1(k1) asm volatile("move $k1, %0;" :: "r" (k1))
 #define GET_K1(k1) asm volatile("move %0, $k1;" : "=r" (k1))
+#define MOVE(a, b) asm volatile("move %0, %1;" : "=r" (a) : "r" (b))
+#define INS(a, b, c, d) asm volatile("ins %0, %1, %2, %3;" : "=r" (a) : "r" (b, c, d))
 
 typedef struct ButtonCallback {
     unsigned int mask;
     void (*cb)(int, int, void*);
-    void *gp;
+    unsigned int gp;
     void *arg;
-}
+} ButtonCallback;
 
 typedef struct sceSysconPacket
 {
@@ -65,9 +69,11 @@ typedef struct SceCtrlOption {
     int g0x000028D8;            //0x000028D8
     sceSysconPacket packet;     //0x000028DC
                                 //0x0000293C
-                            //0x000029E0
+    int g0x000029B8;
+    int g0x000029E0;            //0x000029E0
     int rapidfire[16];          //0x000029EC
                             //0x00002A02
+    char g0x00002B00[4];        //0x00002B00
     char g0x00002B04;           //0x00002B04
     char g0x00002B05;           //0x00002B05
     char g0x00002B07;           //0x00002B07
@@ -98,19 +104,20 @@ int module_reboot_before(SceSize args, void *argp) {
 
 int sceCtrlInit() {//not complete
     memset(&option, 0, 0x314);
-    polling = 1;
-    g0x000029B8 = 0x00002BE0;
-    g0x00002B04 = -128;
-    g0x00002B05 = -128;
-    g0x000029E0 = 0x00002FE0;
-    g0x000028D8 = -1;
-    option->evid = sceKernelCreateEventFlag("SceCtrl", 1, 0, NULL);
-    option->timer = sceSTimerAlloc();
-    if(option->timer != NULL) {
-        SysTimerForKernel_CCC7A9E4(option->timer, 0x1, 0x30);
-        sceKernelRegisterSysEventHandler(sysevent);
+    option.polling = 1;
+    option.g0x000029B8 = 0x00002BE0;
+    option.g0x00002B04 = -128;
+    option.g0x00002B05 = -128;
+    option.g0x000029E0 = 0x00002FE0;
+    option.g0x000028D8 = -1;
+    option.evid = sceKernelCreateEventFlag("SceCtrl", 1, 0, NULL);
+    option.timer = sceSTimerAlloc();
+    if(option.timer != NULL) {
+        SysTimerForKernel_CCC7A9E4(option.timer, 0x1, 0x30);
+        sceKernelRegisterSysEventHandler(&sysevent);
         sceSyscon_driver_62012EAF(0);
         int keyconf = sceKernelInitKeyConfig();
+        int var;
         if(keyconf == 0x110) {
             var = 0x0003FFFF;
         } else if(keyconf == PSP_INIT_KEYCONFIG_VSH) {
@@ -120,9 +127,10 @@ int sceCtrlInit() {//not complete
         } else {
             var = 0x0003F3F9;
         }
-        g0x00002B60 = 0;
-        g0x00002B5C = g0x00002B58;
-        g0x00002B58 = var;
+        option.g0x00002B60 = 0;
+        option.g0x00002B5C = option.g0x00002B58;
+        option.g0x00002B58 = var;
+        int var26;
         switch(sceKernelGetModel()){
             case 0:
             case 1:
@@ -140,13 +148,13 @@ int sceCtrlInit() {//not complete
                 var26 = 0x39FFF3F9;
                 break;
         }
-        g0x00002B64 = var26;
-        g0x00002B68 = 0x39FFF3F9;
-        g0x00002B6C = 0x00F1F3F9;
-        g0x00002B70 = 0x390E0000;
-        g0x00002B74 = 0;
-        g0x00002B78 = 0x81;
-        g0x00002B7C = 0x81;
+        option.g0x00002B64 = var26;
+        option.g0x00002B68 = 0x39FFF3F9;
+        option.g0x00002B6C = 0x00F1F3F9;
+        option.g0x00002B70 = 0x390E0000;
+        option.g0x00002B74 = 0;
+        option.g0x00002B78 = 0x81;
+        option.g0x00002B7C = 0x81;
     }
     return 0;
 }
@@ -155,21 +163,21 @@ int sceCtrlEnd() {
     sceKernelUnregisterSysEventHandler(sysevent);
     sceSyscon_driver_62012EAF(1);
     sceDisplayWaitVblankStart();
-    option->timer = -1;
-    if(option->timer >= 0) {
-        sceSTimerStopCount(option->timer);
-        sceSTimerFree(option->timer);
+    option.timer = -1;
+    if(option.timer >= 0) {
+        sceSTimerStopCount(option.timer);
+        sceSTimerFree(option.timer);
     }
     sceKernelReleaseSubIntrHandlerFunction(/*PSP_DISPLAY_SUBINT, PSP_THREAD0_INT*/0x1E, 0x13);
-	sceKernelDeleteEventFlag(option->evid);
-    while(option->g0x000028D0)
+	sceKernelDeleteEventFlag(option.evid);
+    while(option.g0x000028D0)
         sceDisplayWaitVblankStart();
     return 0;
 }
 
 int sceCtrlSuspend() {
-    if(option->cycle != 0) {
-        sceSTimerStopCount(option->timer);
+    if(option.cycle != 0) {
+        sceSTimerStopCount(option.timer);
     } else {
         sceKernelDisableSubIntr(PSP_DISPLAY_SUBINT,/*PSP_THREAD0_INT*/ 0x13);
     }
@@ -184,31 +192,31 @@ void sub_00000968(int arg1, char arg2, char arg3) {
 SceUInt sub_00001E0C (void *common) { //(alarm handler)
     int intr = sceKernelCpuSuspendIntr();
     int var1;
-    if(option->g0x000028D8 != 0) var1 = option->g0x00002AEC;
-    else asm("ins $a0, $zr, 0, 17" : "=r" var1);
-    sub_00000968(ptr, option->g0x00002B04, option->g0x00002B05);
-    sceKernelSetEventFlag(option->evid, 1);
+    if(option.g0x000028D8 != 0) var1 = option.g0x00002AEC;
+    else asm("ins $a0, $zr, 0, 17" : "=r" (var1));
+    sub_00000968(ptr, option.g0x00002B04, option.g0x00002B05);
+    sceKernelSetEventFlag(option.evid, 1);
     sceKernelCpuResumeIntr(intr);
     return 0;
 }
 
 int sub_00000528 () { //not complete (handler)
     int intr = sceKernelCpuSuspendIntr();
-    if(option->cycle != 0) {
-        if(option->g0x000028D0 == 0 && option->polling != 0) {
-            option->g0x000028D0 = 1;
-            option->packet->tx_cmd = 7;
-            if(option->sampling[0] != 0 && option->sampling[1] != 0)
-                option->packet->tx_cmd = 8;
-            option->packet->tx_len = 2;
-            int ret = sceSysconCmdExecAsync(option->packet, 1, 0x610, 0);
-            if(ret < 0) option->g0x000028D0 = 0;
+    if(option.cycle != 0) {
+        if(option.g0x000028D0 == 0 && option.polling != 0) {
+            option.g0x000028D0 = 1;
+            option.packet.tx_cmd = 7;
+            if(option.sampling[0] != 0 && option.sampling[1] != 0)
+                option.packet.tx_cmd = 8;
+            option.packet.tx_len = 2;
+            int ret = sceSysconCmdExecAsync(option.packet, 1, 0x610, 0);
+            if(ret < 0) option.g0x000028D0 = 0;
         } else {
             sceKernelSetAlarm(0x2BC, sub_00001E0C, NULL);
         }
     }
-    if(option->g0x000028D4 != 0) {
-        option->g0x000028D4 = 0;
+    if(option.g0x000028D4 != 0) {
+        option.g0x000028D4 = 0;
         sceKernelPowerTick(0);
     }
     sceKernelCpuResumeIntr(intr);
@@ -219,13 +227,14 @@ int sub_00000528 () { //not complete (handler)
 int sceCtrlResume() {//not complete
     int var3 = sceSyscon_driver_4717A520();
     if(var3 == 0)
-        asm("ins %0, $zr, 29, 1" : "=r" option->g0x00002AF8);
+        //asm("ins %0, $zr, 29, 1" : "=r" (option.g0x00002AF8));
+        INS(option.g0x00002AF8, 0, 29, 1);
     else if(var3 == 1)
-        option->g0x00002AF8 |= 0x20000000;
-    option->g0x000028CF = -1;
-    if(option->cycle != 0) {
-        sceSTimerStartCount(option->timer);
-        sceSTimerSetHandler(option->timer, option->cycle, sub_00000528, 0);
+        option.g0x00002AF8 |= 0x20000000;
+    option.g0x000028CF = -1;
+    if(option.cycle != 0) {
+        sceSTimerStartCount(option.timer);
+        sceSTimerSetHandler(option.timer, option.cycle, sub_00000528, 0);
     } else {
         sceKernelReleaseSubIntrHandlerFunction(/*PSP_DISPLAY_SUBINT, PSP_THREAD0_INT*/0x1E, 0x13);
 	}
@@ -250,7 +259,7 @@ int sceCtrlGetSamplingMode(int *pmode) {
     int k1;
     GET_K1(k1);
     SLL_K1(11);
-    i = (k1 >> 31 < 1) ? 1 : 0;
+    int i = (k1 >> 31 < 1) ? 1 : 0;
     if(k1 & pmode >= 0) {
         pmode = sampling[i];
     }
@@ -259,22 +268,22 @@ int sceCtrlGetSamplingMode(int *pmode) {
 }
 
 int sceCtrl_driver_A81235E5(int arg) {
-    option->g0x00002B07 = arg;
+    option.g0x00002B07 = arg;
     return 0;
 }
 
 int sceCtrl_driver_7A6436DE(int arg) {
-    option->g0x00002BC0 = arg;
+    option.g0x00002BC0 = arg;
     return 0;
 }
 
 int sceCtrlSetPollingMode(char arg) {
-    option->polling = arg;
+    option.polling = arg;
     return 0;
 }
 
 int sceCtrl_driver_5BE1D4F2() {
-    option->g0x000028CE = 1;
+    option.g0x000028CE = 1;
     return 0;
 }
 
@@ -293,37 +302,39 @@ int sceCtrlSetRapidFire(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {//not complet
 
 int sceCtrlClearRapidFire(char key) {
     if(key >= 16) return 0x80000102;
-    option->rapidfire[key] = 0;
+    option.rapidfire[key] = 0;
     return 0;
 }
 
-int sceCtrl_driver_B7D6332B(short arg1) {//set
+int sceCtrl_348D99D4(short arg1) {//set
     if(arg1 >= 301) return 0x800001FE;
-    option->g0x000028D6 = (arg1 ^ 0x1) ? arg1 : 0;
+    option.g0x000028D6 = (arg1 ^ 0x1) ? arg1 : 0;
     return 0;
 }
 
-int sceCtrl_driver_D2EC6240() {//get
-    return option->g0x000028D6;
+int sceCtrl_AF5960F3() {//get
+    return option.g0x000028D6;
 }
 
-int sceCtrl_driver_A81235E5(char arg1) {
-    option->g0x00002B07 = arg1;
-    return 0;
-}
-
-int sceCtrl_driver_7A6436DE(int arg1) {
-    option->g0x00002BC0 = arg1;
+/**
+ *  no 0,1,2,3
+ *
+ */
+int sceCtrl_driver_D8329216(int no, int arg2, int arg3, int arg4) {
+    if(no >= 4) return 0x800001FE;
+    //v0 = no + no << 2;
+    //t1 = g0x00002B00 + (v0 << 2);
+    //g0x00002B0C;
     return 0;
 }
 
 int sceCtrlRegisterButtonCallback(int no, unsigned int mask, void (*cb)(int, int, void*), void *arg) {
     if(no > 3) return 0x80000102;
     int intr = sceKernelCpuSuspendIntr();
-    option->callback[no]->mask = mask;
-    option->callback[no]->cb = cb;
-    option->callback[no]->gp = $gp;
-    option->callback[no]->arg = arg;
+    option.callback[no].mask = mask;
+    option.callback[no].cb = cb;
+    MOVE(option.callback[no].gp, "$gp");
+    option.callback[no].arg = arg;
     sceKernelCpuResumeIntr(intr);
     return 0;
 }
@@ -333,12 +344,12 @@ int sceCtrlGetSamplingCycle(int *pcycle) {
     GET_K1(k1);
     SLL_K1(11);
     if(k1 & pcycle >= 0)
-        pcycle = option->cycle;
+        pcycle = option.cycle;
     SET_K1(k1);
     return 0;
 }
 
-int sub_00001EA4 (SceCtrlData *pad_data, int count, int arg3, int mode) { //not complete
+int sub_00001EA4(SceCtrlData *pad_data, int count, int arg3, int mode) { //not complete
     if(count > 64) return 0x80000104;
     if(arg3 >= 3) return 0x800001FE;
     if(arg3 == 2) return 0x80000004;//GENERIC ERROR
@@ -347,40 +358,40 @@ int sub_00001EA4 (SceCtrlData *pad_data, int count, int arg3, int mode) { //not 
     SLL_K1(11);
     if(k1 & pad_data < 0) return 0x80000023;
     if(k1 < 0) {
-        if(
+        //if(
     }
     SET_K1(k1);
     return 0;
 }
 
 int sceCtrlPeekBufferPositive(SceCtrlData *pad_data, int count) {
-    return sub_00001EA4 (pad_data, count, 0, 0);
+    return sub_00001EA4(pad_data, count, 0, 0);
 }
 
 int sceCtrlPeekBufferNegative(SceCtrlData *pad_data, int count) {
-    return sub_00001EA4 (pad_data, count, 0, 1);
+    return sub_00001EA4(pad_data, count, 0, 1);
 }
 
 int sceCtrlReadBufferPositive(SceCtrlData *pad_data, int count) {
-    return sub_00001EA4 (pad_data, count, 0, 2);
+    return sub_00001EA4(pad_data, count, 0, 2);
 }
 
 int sceCtrlReadBufferNegative(SceCtrlData *pad_data, int count) {
-    return sub_00001EA4 (pad_data, count, 0, 3);
+    return sub_00001EA4(pad_data, count, 0, 3);
 }
 
-int sceCtrl_driver_E8121137 (int arg1, SceCtrlData *pad_data, int count) {
-    return sub_00001EA4 (pad_data, count, arg1, 4);
+int sceCtrl_5A36B1C2(int arg1, SceCtrlData *pad_data, int count) {
+    return sub_00001EA4(pad_data, count, arg1, 4);
 }
 
-int sceCtrl_driver_52404C02 (int arg1, SceCtrlData *pad_data, int count) {
+int sceCtrl_239A6BA7(int arg1, SceCtrlData *pad_data, int count) {
     return sub_00001EA4 (pad_data, count, arg1, 5);
 }
 
-int sceCtrl_driver_1A5393EC (int arg1, SceCtrlData *pad_data, int count) {
-    return sub_00001EA4 (pad_data, count, arg1, 6);
+int sceCtrl_1098030B(int arg1, SceCtrlData *pad_data, int count) {
+    return sub_00001EA4(pad_data, count, arg1, 6);
 }
 
-int sceCtrl_driver_F8508E92 (int arg1, SceCtrlData *pad_data, int count) {
-    return sub_00001EA4 (pad_data, count, arg1, 7);
+int sceCtrl_7C3675AB(int arg1, SceCtrlData *pad_data, int count) {
+    return sub_00001EA4(pad_data, count, arg1, 7);
 }
