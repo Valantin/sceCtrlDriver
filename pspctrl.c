@@ -8,6 +8,10 @@
 
 PSP_MODULE_INFO("sceController_Service", 1007, 1, 10);
 
+#define SLL_K1(k1) asm volatile("sll $k1, $k1, %0;" :: "r" (b))
+#define SET_K1(k1) asm volatile("move $k1, %0;" :: "r" (k1))
+#define GET_K1(k1) asm volatile("move %0, $k1;" : "=r" (k1))
+
 typedef struct ButtonCallback {
     unsigned int mask;
     void (*cb)(int, int, void*);
@@ -60,9 +64,12 @@ typedef struct SceCtrlOption {
     short g0x000028D6;          //0x000028D6
     int g0x000028D8;            //0x000028D8
     sceSysconPacket packet;     //0x000028DC
+                                //0x0000293C
                             //0x000029E0
     int rapidfire[16];          //0x000029EC
                             //0x00002A02
+    char g0x00002B04;           //0x00002B04
+    char g0x00002B05;           //0x00002B05
     char g0x00002B07;           //0x00002B07
     int g0x00002B58;            //0x00002B58
     int g0x00002B5C;            //0x00002B5C
@@ -91,6 +98,12 @@ int module_reboot_before(SceSize args, void *argp) {
 
 int sceCtrlInit() {//not complete
     memset(&option, 0, 0x314);
+    polling = 1;
+    g0x000029B8 = 0x00002BE0;
+    g0x00002B04 = -128;
+    g0x00002B05 = -128;
+    g0x000029E0 = 0x00002FE0;
+    g0x000028D8 = -1;
     option->evid = sceKernelCreateEventFlag("SceCtrl", 1, 0, NULL);
     option->timer = sceSTimerAlloc();
     if(option->timer != NULL) {
@@ -164,7 +177,8 @@ int sceCtrlSuspend() {
 }
 
 void sub_00000968(int arg1, char arg2, char arg3) {
-
+    unsigned int timelow = sceKernelGetSystemTimeLow();
+    
 }
 
 SceUInt sub_00001E0C (void *common) { //(alarm handler)
@@ -205,8 +219,7 @@ int sub_00000528 () { //not complete (handler)
 int sceCtrlResume() {//not complete
     int var3 = sceSyscon_driver_4717A520();
     if(var3 == 0)
-        asm("ins %0, $zr, 29, 1"
-         : "=r" option->g0x00002AF8);
+        asm("ins %0, $zr, 29, 1" : "=r" option->g0x00002AF8);
     else if(var3 == 1)
         option->g0x00002AF8 |= 0x20000000;
     option->g0x000028CF = -1;
@@ -223,7 +236,8 @@ int sceCtrlSetSamplingMode(int mode) {
     int ret = 0x80000107;
     if(mode < 2) {
         int intr = sceKernelCpuSuspendIntr();
-        int k1 = pspSdkGetK1();
+        int k1;
+        GET_K1(k1);
         int i = k1 >> 20 & 1;
         ret = sampling[i];
         sampling[i] = mode;
@@ -233,12 +247,14 @@ int sceCtrlSetSamplingMode(int mode) {
 }
 
 int sceCtrlGetSamplingMode(int *pmode) {
-    int k1 = pspSdkSetK1(0);
+    int k1;
+    GET_K1(k1);
+    SLL_K1(11);
     i = (k1 >> 31 < 1) ? 1 : 0;
     if(k1 & pmode >= 0) {
         pmode = sampling[i];
     }
-    pspSdkSetK1(k1);
+    SET_K1(k1);
     return 0;
 }
 
@@ -313,10 +329,12 @@ int sceCtrlRegisterButtonCallback(int no, unsigned int mask, void (*cb)(int, int
 }
 
 int sceCtrlGetSamplingCycle(int *pcycle) {
-    int k1 = pspSdkSetK1(0);
+    int k1;
+    GET_K1(k1);
+    SLL_K1(11);
     if(k1 & pcycle >= 0)
         pcycle = option->cycle;
-    pspSdkSetK1(k1);
+    SET_K1(k1);
     return 0;
 }
 
@@ -324,12 +342,14 @@ int sub_00001EA4 (SceCtrlData *pad_data, int count, int arg3, int mode) { //not 
     if(count > 64) return 0x80000104;
     if(arg3 >= 3) return 0x800001FE;
     if(arg3 == 2) return 0x80000004;//GENERIC ERROR
-    int k1 = pspSdkSetK1(0);
+    int k1;
+    GET_K1(k1);
+    SLL_K1(11);
     if(k1 & pad_data < 0) return 0x80000023;
     if(k1 < 0) {
         if(
     }
-    pspSdkSetK1(k1);
+    SET_K1(k1);
     return 0;
 }
 
